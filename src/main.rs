@@ -1,6 +1,11 @@
+
+#[macro_use]
+extern crate lazy_static;
+
 mod chip8;
 
 use chip8::cpu;
+use chip8::display;
 
 use std::env;
 use std::fs;
@@ -13,7 +18,8 @@ fn main() {
 
     println!("file size: {} bytes", size);
 
-    let mut cpu = cpu::Cpu::new();
+    let mut display = display::debug::DebugDisplay::new();
+    let mut cpu = cpu::Cpu::new(display);
 
     let count = cpu.load_program(&mut file).unwrap();
     println!("loaded {} bytes into ram", count);
