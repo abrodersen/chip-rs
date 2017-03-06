@@ -14,7 +14,7 @@ impl DebugDisplay {
 }
 
 impl Display for DebugDisplay {
-    fn draw(&self, pt: Point, sprite: &Sprite) {
+    fn draw(&mut self, pt: Point, sprite: &Sprite) {
         println!("drawing sprite[{}] at ({}, {})", sprite.buffer.len(), pt.x, pt.y);
     }
 }

@@ -4,4 +4,6 @@ version = "0.1.0"
 authors = ["Aaron Brodersen <aaron@abrodersen.com>"]
 
 [dependencies]
+time = "0.1"
 lazy_static = "0.2"
+sdl2 = "0.29"

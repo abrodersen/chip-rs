@@ -6,6 +6,17 @@ pub struct Sprite {
     buffer: Vec<u8>,
 }
 
+pub struct Pixel {
+    x: u8,
+    y: u8,
+    on: bool,
+}
+
+pub struct PixelIter<'a> {
+    sprite: &'a Sprite,
+    pos: u8,
+}
+
 lazy_static! {
     pub static ref ZERO:  Sprite = { Sprite::new(&[0xF0, 0x90, 0x90, 0x90, 0xF0]) };
     pub static ref ONE:   Sprite = { Sprite::new(&[0x20, 0x60, 0x20, 0x20, 0x70]) };
@@ -32,9 +43,35 @@ impl Sprite {
          }
      }
 
+     pub fn pixels(&self) -> PixelIter {
+        PixelIter {
+            sprite: self,
+            pos: 0,
+        }
+     }
+
      pub fn raw(&self) -> &[u8] {
         self.buffer.as_slice()
      }
+}
+
+impl<'a> Iterator for PixelIter<'a> {
+    type Item = Pixel;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let byte = self.pos / 8;
+        if byte >= self.sprite.buffer.len() as u8 {
+            return None;
+        }
+
+        let value = self.sprite.buffer[byte as usize];
+        let bit = self.pos % 8;
+        //println!("byte {} bit {}", byte, bit);
+        let on = (value >> (7 - bit)) & 0x1 == 1;
+        self.pos += 1;
+
+        Some(Pixel{ x: byte, y: bit, on: on})
+    }
 }
 
 pub struct Point {
@@ -43,6 +80,6 @@ pub struct Point {
 }
 
 pub trait Display {
-     fn draw(&self, pt: Point, sp: &Sprite);
+     fn draw(&mut self, pt: Point, sp: &Sprite);
 }
 

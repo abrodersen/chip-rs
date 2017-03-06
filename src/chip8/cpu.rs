@@ -140,6 +140,9 @@ impl<D> Cpu<D>  where D: Display {
             let op = self.get_dword(self.pc_reg);
             let instr = op::Instruction::new(op);
 
+            self.delay_timer.tick();
+            self.sound_timer.tick();
+
             self.run(instr);
 
             self.pc_reg = self.pc_reg + 2;
@@ -163,7 +166,7 @@ impl<D> Cpu<D>  where D: Display {
             },
             // Jump to address
             Opcode::Jp => {
-                self.pc_reg = instr.get_addr();
+                self.pc_reg = instr.get_addr() - 2;
             }
             // Call a subroutine by pushing the program counter on to the stack
             Opcode::Call => {
@@ -187,37 +190,63 @@ impl<D> Cpu<D>  where D: Display {
             Opcode::Ldi => {
                 self.set_reg(instr.get_x(), instr.get_byte());
             }
-            //
+            // 
             Opcode::Addi => {
                 let value = self.get_reg(instr.get_x());
                 let addition = value + instr.get_byte();
                 self.set_reg(instr.get_x(), addition);
             }
+            // Load register y into register x
+            Opcode::Ld => {
+                let value = self.get_reg(instr.get_y());
+                self.set_reg(instr.get_x(), value);
+            }
             // load immediate into I register
             Opcode::Ldl => {
                 self.set_i(instr.get_addr());
+            }            
+            // Draw a sprite to the screen
+            Opcode::Drw => {
+                let x = self.get_reg(instr.get_x());
+                let y = self.get_reg(instr.get_y());
+                let point = Point { x: x, y: y };
+                
+                // Do this to avoid borrow checker complaints
+                let sprite = {
+                    let data = self.get_slice(self.i_reg, instr.get_nibble() as u16);
+                    Sprite::new(data)
+                };
+
+                self.display.draw(point, &sprite);
             }
-            
-            
-            // Load immediate into delay timer
-            Opcode::Ldwt => {
-                self.delay_timer.set(instr.get_x());
+            // Skip next instruction if key = register x is pressed
+            Opcode::Skp => {
+                //No input system for now
             }
+            // load delay timer into register x
             Opcode::Ldrt => {
                 let time = self.delay_timer.get();
                 self.set_reg(instr.get_x(), time);
             }
-            // Draw a sprite to the screen
-            Opcode::Drw => {
-                let point = Point { x: instr.get_x(), y: instr.get_y() };
-                let data = self.get_slice(self.i_reg, instr.get_nibble() as u16);
-                let sprite = Sprite::new(data);
-                self.display.draw(point, &sprite);
+            // Load immediate into delay timer
+            Opcode::Ldwt => {
+                let time = self.get_reg(instr.get_x());
+                self.delay_timer.set(time);
             }
             // Set I to sprite address x
             Opcode::Ldd => {
                 let address = SPRITE_BASE as u16 + instr.get_x() as u16 * SPRITE_ALIGN as u16;
                 self.set_i(address);
+            }
+            // Set sound timer to the value of register x
+            Opcode::Ldst => {
+                let time = self.get_reg(instr.get_x());
+                self.sound_timer.set(time);
+            }
+            // Add register x to I register
+            Opcode::Addl => {
+                let added = self.i_reg + self.get_reg(instr.get_x()) as u16;
+                self.set_i(added);
             }
             // Load binary coded decimal into I[0..2]
             Opcode::Ldb => {
