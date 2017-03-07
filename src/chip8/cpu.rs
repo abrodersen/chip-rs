@@ -5,21 +5,28 @@ use std::cmp;
 use super::op::{self, Opcode};
 use super::timer::Timer;
 use super::display::{self, Display, Point, Sprite};
+use super::input::Input;
+
+use rand::Rng;
 
 const RAM_SIZE : usize = 4096;
 const PC_START : usize = 0x200;
 const SPRITE_BASE : usize = 0x010;
 const SPRITE_ALIGN : usize = 0x10;
 
-pub struct Cpu<D : Display> {
+pub struct Cpu<D : Display, R : Rng, I : Input> {
     gp_reg: Box<[u8]>,
     i_reg:  u16,
     delay_timer: Timer,
     sound_timer: Timer,
+
+    rng: R,
     display: D,
+    input: I,
 
     pc_reg: u16,
     sp_reg: u8,
+    stat_reg: bool,
 
     stack: Box<[u16]>,
     ram: Box<[u8]>,
@@ -42,20 +49,26 @@ pub struct Cpu<D : Display> {
     // pub static ref E:     Sprite = { Sprite::new(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]) };
     // pub static ref F:     Sprite = { Sprite::new(&[0xF0, 0x80, 0xF0, 0x80, 0x80]) };
 
-impl<D> Cpu<D>  where D: Display {
-    pub fn new(display: D) -> Self {
+impl<D, R, I> Cpu<D, R, I>  where D: Display, R : Rng, I : Input {
+    pub fn new(rng: R, display: D, input: I) -> Self {
         let sprites = [
             Sprite::new(&[0xF0, 0x90, 0x90, 0x90, 0xF0]), // zero
             Sprite::new(&[0x20, 0x60, 0x20, 0x20, 0x70]), // one
             Sprite::new(&[0xF0, 0x10, 0xF0, 0x80, 0xF0]), // two
             Sprite::new(&[0xF0, 0x10, 0xF0, 0x10, 0xF0]), // three
+            Sprite::new(&[0x90, 0x90, 0xF0, 0x10, 0x10]), // four
+            Sprite::new(&[0xF0, 0x80, 0xF0, 0x10, 0xF0]), // five
+            Sprite::new(&[0xF0, 0x80, 0xF0, 0x90, 0xF0]), // six
+            Sprite::new(&[0xF0, 0x10, 0x20, 0x40, 0x40]), // seven
+            Sprite::new(&[0xF0, 0x90, 0xF0, 0x90, 0xF0]), // eight
+            Sprite::new(&[0xF0, 0x90, 0xF0, 0x10, 0xF0]), // nine
+            Sprite::new(&[0xF0, 0x90, 0xF0, 0x90, 0x90]), // a
+            Sprite::new(&[0xE0, 0x90, 0xE0, 0x90, 0xE0]), // b
+            Sprite::new(&[0xF0, 0x80, 0x80, 0x80, 0xF0]), // c
+            Sprite::new(&[0xE0, 0x90, 0x90, 0x90, 0xE0]), // d
+            Sprite::new(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]), // e
+            Sprite::new(&[0xF0, 0x80, 0xF0, 0x80, 0x80]), // f
         ];
-        // let sprites: [display::Sprite] = [
-        //     display::ZERO, display::ONE, display::TWO, display::THREE,
-        //     display::FOUR, display::FIVE, display::SIX, display::SEVEN,
-        //     display::EIGHT, display::NINE, display::A, display::B,
-        //     display::C, display::D, display::E, display::F,
-        // ];
 
         let mut ram = vec![0; RAM_SIZE].into_boxed_slice();
 
@@ -71,9 +84,12 @@ impl<D> Cpu<D>  where D: Display {
             i_reg: 0,
             delay_timer: Timer::new(),
             sound_timer: Timer::new(),
+            rng: rng,
             display: display,
+            input: input,
             pc_reg: 0,
             sp_reg: 0,
+            stat_reg: false,
             stack: vec![0; 16].into_boxed_slice(),
             ram: ram,
         }
@@ -139,22 +155,25 @@ impl<D> Cpu<D>  where D: Display {
         loop {
             let op = self.get_dword(self.pc_reg);
             let instr = op::Instruction::new(op);
+            println!("{:#x}: {:?}", self.pc_reg, instr.get_opcode());
 
-            self.delay_timer.tick();
-            self.sound_timer.tick();
+            self.pc_reg += 2;
 
             self.run(instr);
 
-            self.pc_reg = self.pc_reg + 2;
+            self.delay_timer.tick();
+            self.sound_timer.tick();
         }
     }
 
     fn run(&mut self, instr: op::Instruction) {
         let op = instr.get_opcode();
 
-        println!("{:#x}: {:?}", self.pc_reg, op);
-
         match op {
+            // Clear the screen 
+            Opcode::Cls => {
+                self.display.clear();
+            }
             // Return from a subroutine 
             Opcode::Ret => {
                 let new_pc = self.pop_stack();
@@ -166,7 +185,7 @@ impl<D> Cpu<D>  where D: Display {
             },
             // Jump to address
             Opcode::Jp => {
-                self.pc_reg = instr.get_addr() - 2;
+                self.pc_reg = instr.get_addr();
             }
             // Call a subroutine by pushing the program counter on to the stack
             Opcode::Call => {
@@ -193,7 +212,7 @@ impl<D> Cpu<D>  where D: Display {
             // 
             Opcode::Addi => {
                 let value = self.get_reg(instr.get_x());
-                let addition = value + instr.get_byte();
+                let addition = value.wrapping_add(instr.get_byte());
                 self.set_reg(instr.get_x(), addition);
             }
             // Load register y into register x
@@ -201,10 +220,37 @@ impl<D> Cpu<D>  where D: Display {
                 let value = self.get_reg(instr.get_y());
                 self.set_reg(instr.get_x(), value);
             }
+            Opcode::And => {
+                let left = self.get_reg(instr.get_x());
+                let right = self.get_reg(instr.get_y());
+                self.set_reg(instr.get_x(), left & right);
+            }
+            // add x and y registers and store in x
+            Opcode::Add => {
+                let left = self.get_reg(instr.get_x());
+                let right = self.get_reg(instr.get_y());
+                let (result, over) = left.overflowing_add(right);
+                self.set_reg(instr.get_x(), result);
+                self.stat_reg = over;
+            }
+            // subtract y from x and store in x
+            Opcode::Sub => {
+                let left = self.get_reg(instr.get_x());
+                let right = self.get_reg(instr.get_y());
+                let (result, over) = left.overflowing_sub(right);
+                self.set_reg(instr.get_y(), result);
+                self.stat_reg = over;
+            }
             // load immediate into I register
             Opcode::Ldl => {
                 self.set_i(instr.get_addr());
-            }            
+            }
+            // generate a random number
+            Opcode::Rnd => {
+                let num: u8 = self.rng.gen();
+                let masked = num & instr.get_byte();
+                self.set_reg(instr.get_x(), masked);
+            }
             // Draw a sprite to the screen
             Opcode::Drw => {
                 let x = self.get_reg(instr.get_x());
@@ -221,12 +267,24 @@ impl<D> Cpu<D>  where D: Display {
             }
             // Skip next instruction if key = register x is pressed
             Opcode::Skp => {
-                //No input system for now
+                let key = self.get_reg(instr.get_x());
+                if self.input.is_pressed(key) {
+                    self.pc_reg += 2;
+                }
+            }
+            Opcode::Sknp => {
+                let key = self.get_reg(instr.get_x());
+                if !self.input.is_pressed(key) {
+                    self.pc_reg += 2;
+                }
             }
             // load delay timer into register x
             Opcode::Ldrt => {
                 let time = self.delay_timer.get();
                 self.set_reg(instr.get_x(), time);
+            }
+            Opcode::Ldk => {
+
             }
             // Load immediate into delay timer
             Opcode::Ldwt => {
@@ -275,8 +333,6 @@ impl<D> Cpu<D>  where D: Display {
                     self.set_reg(x, val);
                 }
             },
-            
-            
             
             _ => panic!("pc {:#x}: {:?} not implemented", self.pc_reg, op)
         }

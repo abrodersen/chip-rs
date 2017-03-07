@@ -2,30 +2,24 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate sdl2;
+extern crate rand;
+extern crate chan_signal;
 
 mod chip8;
 
 use chip8::cpu;
 use chip8::display;
+use chip8::input;
+
+use rand::{Rng, SeedableRng};
 
 use sdl2::video;
 
+use chan_signal::Signal;
+
 use std::env;
 use std::fs;
-
-const PIXEL_WIDTH : u32 = 64;
-const PIXEL_HEIGHT : u32 = 32;
-const SCALE_FACTOR : u32 = 30;
-
-fn get_window(context: &sdl2::VideoSubsystem) -> video::Window {
-    let width = PIXEL_WIDTH * SCALE_FACTOR;
-    let height = PIXEL_HEIGHT * SCALE_FACTOR;
-    context.window("CHIP-RS", width, height)
-        .position_centered()
-        .opengl()
-        .build()
-        .unwrap()
-}
+use std::thread;
 
 fn main() {
 
@@ -35,16 +29,27 @@ fn main() {
 
     println!("file size: {} bytes", size);
 
-    let sdl_context = sdl2::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-    let window = get_window(&video_subsystem);
+    let signal = chan_signal::notify(&[Signal::INT, Signal::TERM]);
 
-    let mut display = display::sdl::SdlDisplay::new(SCALE_FACTOR, window);
-    let mut cpu = cpu::Cpu::new(display);
+    thread::spawn(move || {
+        let seed = &[0xdeadbeef];
+        let mut rng = rand::StdRng::from_seed(seed);
 
-    let count = cpu.load_program(&mut file).unwrap();
-    println!("loaded {} bytes into ram", count);
+        let sdl_context = sdl2::init().unwrap();
+        let video_subsystem = sdl_context.video().unwrap();
+        let mut input_subsystem = sdl_context.event_pump().unwrap();
 
-    cpu.start();
+        let mut display = display::sdl::SdlDisplay::new(&video_subsystem);
+        let mut input = input::sdl::SdlInput::new(&mut input_subsystem);
+        //let mut display = display::debug::DebugDisplay::new();
+        let mut cpu = cpu::Cpu::new(rng, display, input);
+
+        let count = cpu.load_program(&mut file).unwrap();
+        println!("loaded {} bytes into ram", count);
+
+        cpu.start();
+    });
+    
+    signal.recv().unwrap();
 
 }

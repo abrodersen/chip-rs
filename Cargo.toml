@@ -7,3 +7,5 @@ authors = ["Aaron Brodersen <aaron@abrodersen.com>"]
 time = "0.1"
 lazy_static = "0.2"
 sdl2 = "0.29"
+rand = "0.3"
+chan-signal = "0.2"

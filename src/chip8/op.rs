@@ -117,3 +117,8 @@ impl Instruction {
         ((self.0 >> 4) & 0xF) as u8
     }
 }
+
+#[test]
+fn get_byte() {
+    
+}

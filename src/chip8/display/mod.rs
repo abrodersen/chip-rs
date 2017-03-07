@@ -6,10 +6,11 @@ pub struct Sprite {
     buffer: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub struct Pixel {
-    x: u8,
-    y: u8,
-    on: bool,
+    pub x: u8,
+    pub y: u8,
+    pub on: bool,
 }
 
 pub struct PixelIter<'a> {
@@ -80,6 +81,7 @@ pub struct Point {
 }
 
 pub trait Display {
-     fn draw(&mut self, pt: Point, sp: &Sprite);
+    fn clear(&mut self);
+    fn draw(&mut self, pt: Point, sp: &Sprite);
 }
 

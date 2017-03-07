@@ -24,7 +24,7 @@ impl Timer {
         }
 
         let next = time::precise_time_ns();
-        if next - self.timestamp > 16666666 {
+        if next - self.timestamp > 1_666_666 {
             self.time -= 1;
         }
 
